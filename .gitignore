@@ -186,3 +186,16 @@ local.properties
 .classpath
 /ticket.api.test/
 /ticket.test.api/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+*.xcodeproj/
+xcuserdata/
+
+# macOS
+.DS_Store
+
+# Serena
+.serena/cache/
