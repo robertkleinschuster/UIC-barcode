@@ -84,12 +84,15 @@ public struct SignatureVerifier {
         let algorithm = try AlgorithmOID.parse(algorithmOID)
 
         switch algorithm {
+        // The curve-specific methods hash the data once, with the hash the OID names — as
+        // `Signature.getInstance("SHA256withECDSA")` does in the Java reference. Hashing here as well
+        // verified a signature over the hash of the hash, and rejected every issuer's real one.
         case .ecdsaWithSHA256:
-            return try verifyECDSA_P256(signature: signature, data: SHA256.hash(data: data).data, publicKey: publicKey)
+            return try verifyECDSA_P256(signature: signature, data: data, publicKey: publicKey)
         case .ecdsaWithSHA384:
-            return try verifyECDSA_P384(signature: signature, data: SHA384.hash(data: data).data, publicKey: publicKey)
+            return try verifyECDSA_P384(signature: signature, data: data, publicKey: publicKey)
         case .ecdsaWithSHA512:
-            return try verifyECDSA_P521(signature: signature, data: SHA512.hash(data: data).data, publicKey: publicKey)
+            return try verifyECDSA_P521(signature: signature, data: data, publicKey: publicKey)
         case .dsaWithSHA1:
             return try verifyDSA(signature: signature, data: data, publicKey: publicKey, hashAlgorithm: .sha1)
         case .dsaWithSHA224:
@@ -225,26 +228,29 @@ public struct SignatureVerifier {
             throw UICBarcodeError.signatureInvalid("Invalid DER signature format")
         }
 
-        var offset = 2 // Skip SEQUENCE tag and length
-
-        // Read r
-        guard der[offset] == 0x02 else {
-            throw UICBarcodeError.signatureInvalid("Expected INTEGER tag for r")
+        let bytes = [UInt8](der)
+        // Skip the SEQUENCE tag and its length. A P-521 signature is longer than 127 bytes, so the
+        // length comes in the long form (0x81 nn).
+        var offset = 2
+        if bytes[1] & 0x80 != 0 {
+            offset += Int(bytes[1] & 0x7F)
         }
-        offset += 1
-        let rLength = Int(der[offset])
-        offset += 1
-        var rData = Data(der[offset..<(offset + rLength)])
-        offset += rLength
 
-        // Read s
-        guard der[offset] == 0x02 else {
-            throw UICBarcodeError.signatureInvalid("Expected INTEGER tag for s")
+        func readInteger(_ name: String) throws -> Data {
+            guard offset + 2 <= bytes.count, bytes[offset] == 0x02 else {
+                throw UICBarcodeError.signatureInvalid("Expected INTEGER tag for \(name)")
+            }
+            let length = Int(bytes[offset + 1])
+            offset += 2
+            guard length & 0x80 == 0, offset + length <= bytes.count else {
+                throw UICBarcodeError.signatureInvalid("Invalid INTEGER length for \(name)")
+            }
+            defer { offset += length }
+            return Data(bytes[offset..<(offset + length)])
         }
-        offset += 1
-        let sLength = Int(der[offset])
-        offset += 1
-        var sData = Data(der[offset..<(offset + sLength)])
+
+        var rData = try readInteger("r")
+        var sData = try readInteger("s")
 
         // Remove leading zeros if present (DER integers are signed)
         if rData.count > curveByteLength && rData[0] == 0 {
@@ -297,6 +303,10 @@ public struct SignatureVerifier {
 
         var der = Data()
         der.append(0x30) // SEQUENCE tag
+        // Long form above 127 bytes (P-521): 0x81 followed by the length.
+        if sequenceLength > 0x7F {
+            der.append(0x81)
+        }
         der.append(UInt8(sequenceLength))
         der.append(0x02) // INTEGER tag
         der.append(UInt8(rData.count))

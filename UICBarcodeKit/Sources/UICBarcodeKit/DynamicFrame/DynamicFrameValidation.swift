@@ -19,10 +19,9 @@ extension DynamicFrame {
 
     /// Validate Level 1 signature using an external public key.
     ///
-    /// Uses the same signing convention as `signLevel1`: CryptoKit hashes internally.
-    /// This means we call the curve-specific verify methods directly with raw data,
-    /// NOT through `SignatureVerifier.verify()` which pre-hashes (double-hash convention
-    /// used for real-world barcode verification with externally-signed data).
+    /// Uses the same signing convention as `signLevel1`: CryptoKit hashes the data once, as
+    /// SHA256withECDSA does everywhere. The curve-specific verify methods are called directly with
+    /// the raw data, which is what `SignatureVerifier.verify()` does as well.
     ///
     /// - Parameters:
     ///   - publicKey: The public key in SPKI, X.509 certificate, or raw format

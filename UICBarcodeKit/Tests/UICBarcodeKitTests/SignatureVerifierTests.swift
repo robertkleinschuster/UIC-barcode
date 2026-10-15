@@ -113,25 +113,80 @@ final class SignatureVerifierTests: XCTestCase {
 
     // MARK: - Algorithm OID-based Verification Tests
 
-    /// Test verification using ECDSA-SHA256 OID
+    /// SHA256withECDSA hashes the signed data once — `Signature.getInstance("SHA256withECDSA")` in the
+    /// Java reference, `openssl dgst -sha256 -sign`, CryptoKit's `signature(for:)`. An issuer's
+    /// signature made that way must verify through the OID-based entry point.
     func testVerifyWithAlgorithmOID_ECDSA_SHA256() throws {
         let privateKey = P256.Signing.PrivateKey()
-        let publicKey = privateKey.publicKey
-
         let testData = "Test data for OID-based verification".data(using: .utf8)!
-
-        // Hash the data first (as the OID-based method expects to hash)
-        let digest = SHA256.hash(data: testData)
-        let signature = try privateKey.signature(for: Data(digest))
+        let signature = try privateKey.signature(for: testData)
 
         let isValid = try SignatureVerifier.verify(
             signature: signature.derRepresentation,
             data: testData,
-            publicKey: publicKey.x963Representation,
+            publicKey: privateKey.publicKey.x963Representation,
             algorithmOID: AlgorithmOID.ecdsa_sha256_oid
         )
 
-        XCTAssertTrue(isValid, "OID-based verification should succeed")
+        XCTAssertTrue(isValid, "A standard SHA256withECDSA signature should verify")
+    }
+
+    func testVerifyWithAlgorithmOID_ECDSA_SHA384() throws {
+        let privateKey = P384.Signing.PrivateKey()
+        let testData = "Test data for OID-based verification".data(using: .utf8)!
+        let signature = try privateKey.signature(for: testData)
+
+        let isValid = try SignatureVerifier.verify(
+            signature: signature.derRepresentation,
+            data: testData,
+            publicKey: privateKey.publicKey.x963Representation,
+            algorithmOID: AlgorithmOID.ecdsa_sha384_oid
+        )
+
+        XCTAssertTrue(isValid, "A standard SHA384withECDSA signature should verify")
+    }
+
+    func testVerifyWithAlgorithmOID_ECDSA_SHA512() throws {
+        let privateKey = P521.Signing.PrivateKey()
+        let testData = "Test data for OID-based verification".data(using: .utf8)!
+        let signature = try privateKey.signature(for: testData)
+
+        let isValid = try SignatureVerifier.verify(
+            signature: signature.derRepresentation,
+            data: testData,
+            publicKey: privateKey.publicKey.x963Representation,
+            algorithmOID: AlgorithmOID.ecdsa_sha512_oid
+        )
+
+        XCTAssertTrue(isValid, "A standard SHA512withECDSA signature should verify")
+    }
+
+    /// A P-521 signature in DER is longer than 127 bytes and needs the long length form both ways.
+    func testP521SignatureRoundTripsThroughDER() throws {
+        let privateKey = P521.Signing.PrivateKey()
+        let signature = try privateKey.signature(for: Data("round trip".utf8))
+
+        let raw = try SignatureVerifier.derToRawSignature(signature.derRepresentation, curveByteLength: 66)
+        let der = try SignatureVerifier.rawToDerSignature(raw)
+
+        XCTAssertEqual(raw, signature.rawRepresentation)
+        XCTAssertEqual(try P521.Signing.ECDSASignature(derRepresentation: der).rawRepresentation, signature.rawRepresentation)
+    }
+
+    /// A signature over the hash of the hash is not a SHA256withECDSA signature of the data.
+    func testVerifyWithAlgorithmOID_ECDSA_SHA256_RejectsDoubleHashedSignature() throws {
+        let privateKey = P256.Signing.PrivateKey()
+        let testData = "Test data for OID-based verification".data(using: .utf8)!
+        let signature = try privateKey.signature(for: Data(SHA256.hash(data: testData)))
+
+        let isValid = try SignatureVerifier.verify(
+            signature: signature.derRepresentation,
+            data: testData,
+            publicKey: privateKey.publicKey.x963Representation,
+            algorithmOID: AlgorithmOID.ecdsa_sha256_oid
+        )
+
+        XCTAssertFalse(isValid, "A signature over SHA256(SHA256(data)) must not verify")
     }
 
     /// Test that DSA algorithms with invalid key throw appropriate error
